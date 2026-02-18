@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-plus-nginx-ingress
+  namespace: nginx-ingress
+data:
+  http-snippets: |
+    underscores_in_headers on;
+    subrequest_output_buffer_size 64k;
+
+    # NJS library location
+    js_path /etc/nginx/njs;
+
+    # Import NJS modules
+    js_import oauth_token from oauth_token.js;
+    js_import lowercase   from lowercase.js;
+
+    # Pass-through original Authorization (Basic) for lab
+    map $http_authorization $original_basic_auth { default $http_authorization; }

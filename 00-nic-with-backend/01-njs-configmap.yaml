@@ -1,0 +1,78 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cdg-njs-lib
+  namespace: nginx-ingress
+data:
+  lowercase.js: |
+    function lowercase_uri(r) {
+      return (r.uri || "").toLowerCase();
+    }
+    export default { lowercase_uri };
+
+  oauth_token.js: |
+    function startsWithIgnoreCase(s, p) {
+      return s && s.toLowerCase().startsWith(p);
+    }
+
+    function ok(r, tokenForward) {
+      if (tokenForward) r.headersOut["Token-forward"] = tokenForward;
+      return r.return(204); // allow for auth_request
+    }
+
+    function deny(r, origStatus, body, detail) {
+      // auth_request expects: allow=2xx, deny=401/403
+      const mapped = (origStatus === 401) ? 401 : 403;
+
+      if (detail)     r.headersOut["X-Auth-Detail"] = detail;
+      if (origStatus) r.headersOut["X-Auth-Status"] = String(origStatus);
+      if (body)       r.headersOut["X-Auth-Body"]   = String(body).substring(0, 2048);
+
+      return r.return(mapped);
+    }
+
+    function introspectAccessToken(r) {
+      const auth = r.headersIn["Authorization"] || "";
+      r.log(`auth_gate: auth=${auth ? "present" : "missing"} perm=${r.variables.permission}`);
+
+      if (!auth) return deny(r, 401, "Missing Authorization", "no_auth");
+
+      // BASIC -> client_credentials token exchange
+      if (startsWithIgnoreCase(auth, "basic ")) {
+        return r.subrequest("/_oauth2_send_basic_request", (rep) => {
+          r.log(`basic->kc status=${rep.status}`);
+
+          if (rep.status === 200) {
+            try {
+              const json = JSON.parse(rep.responseText || "{}");
+              if (!json.access_token) return deny(r, 403, rep.responseText, "no_access_token");
+              return ok(r, `Bearer ${json.access_token}`);
+            } catch (e) {
+              r.log(`basic parse error: ${e}`);
+              return deny(r, 403, rep.responseText, "parse_error_basic");
+            }
+          }
+
+          return deny(r, rep.status, rep.responseText, "kc_non200_basic");
+        });
+      }
+
+      // BEARER -> UMA ticket permission check
+      if (startsWithIgnoreCase(auth, "bearer ")) {
+        return r.subrequest("/_oauth2_send_bearer_request", (rep) => {
+          r.log(`bearer(uma)->kc status=${rep.status}`);
+
+          if (rep.status === 200) {
+            // Lab behavior: forward original bearer
+            // If your Keycloak returns an RPT access_token, parse and forward it instead.
+            return ok(r, auth);
+          }
+
+          return deny(r, rep.status, rep.responseText, "kc_non200_bearer");
+        });
+      }
+
+      return deny(r, 401, "Unsupported Authorization scheme", "bad_scheme");
+    }
+
+    export default { introspectAccessToken };

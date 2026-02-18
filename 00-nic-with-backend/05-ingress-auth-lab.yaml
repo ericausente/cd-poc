@@ -1,0 +1,97 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cdg-auth-lab
+  namespace: cdg-auth-lab
+  annotations:
+    kubernetes.io/ingress.class: nginx
+
+    nginx.org/server-snippets: |
+      # helper: lower-case URI for permission string
+      js_set $lower_uri lowercase.lowercase_uri;
+
+      # NJS auth_request entrypoint
+      location = /_oauth2_token_introspection {
+        internal;
+        js_content oauth_token.introspectAccessToken;
+      }
+
+      # BASIC -> client_credentials
+      location = /_oauth2_send_basic_request {
+        internal;
+        proxy_method POST;
+        proxy_set_header Content-Type "application/x-www-form-urlencoded";
+
+        # LAB option: pass client's Basic header through:
+        proxy_set_header Authorization $original_basic_auth;
+
+        # PROD option: hardcode Basic client creds:
+        # proxy_set_header Authorization "Basic <BASE64(client_id:client_secret)>";
+
+        proxy_set_body "grant_type=client_credentials";
+
+        proxy_ssl_server_name on;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+
+        proxy_connect_timeout 1s;
+        proxy_send_timeout 2s;
+        proxy_read_timeout 2s;
+        proxy_next_upstream off;
+
+        proxy_pass https://keycloakaz.kushikimi.xyz/realms/mw-dev-realm/protocol/openid-connect/token;
+      }
+
+      # BEARER -> UMA ticket permission check
+      location = /_oauth2_send_bearer_request {
+        internal;
+        proxy_method POST;
+        proxy_set_header Content-Type "application/x-www-form-urlencoded";
+        proxy_set_header Authorization $http_authorization;
+
+        proxy_set_body "grant_type=urn:ietf:params:oauth:grant-type:uma-ticket&permission=$permission&audience=mw-resource-owner&permission_resource_format=uri&permission_resource_matching_uri=true";
+
+        proxy_ssl_server_name on;
+        proxy_http_version 1.1;
+        proxy_set_header Connection "";
+
+        proxy_connect_timeout 1s;
+        proxy_send_timeout 2s;
+        proxy_read_timeout 2s;
+        proxy_next_upstream off;
+
+        proxy_pass https://keycloakaz.kushikimi.xyz/realms/mw-dev-realm/protocol/openid-connect/token;
+      }
+
+    nginx.org/location-snippets: |
+      # Permission format used by Keycloak resources: <lower_path>#<METHOD>
+      set $permission "$lower_uri#$request_method";
+
+      # Always run auth gate
+      auth_request /_oauth2_token_introspection;
+
+      # Token-forward from NJS
+      auth_request_set $final_auth $sent_http_token_forward;
+
+      # Debug headers to see Keycloak result quickly (remove in prod)
+      auth_request_set $kc_status $sent_http_x_auth_status;
+      auth_request_set $kc_detail $sent_http_x_auth_detail;
+      add_header X-KC-Status $kc_status always;
+      add_header X-Auth-Detail $kc_detail always;
+
+      # Forward FINAL auth to backend
+      proxy_set_header Authorization $final_auth;
+
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: cdg-auth-lab.kushikimi.xyz
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: httpbin
+            port:
+              number: 80

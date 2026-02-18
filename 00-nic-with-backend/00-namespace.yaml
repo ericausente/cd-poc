@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: cdg-auth-lab
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: nginx-ingress

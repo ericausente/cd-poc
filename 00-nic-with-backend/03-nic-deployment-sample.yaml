@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-plus-nginx-ingress-controller
+  namespace: nginx-ingress
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nginx-ingress
+      app.kubernetes.io/instance: nginx-plus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nginx-ingress
+        app.kubernetes.io/instance: nginx-plus
+    spec:
+      serviceAccountName: nginx-plus-nginx-ingress
+
+      volumes:
+      - name: cdg-njs-lib
+        configMap:
+          name: cdg-njs-lib
+
+      containers:
+      - name: nginx-ingress
+        image: private-registry.nginx.com/nginx-ic/nginx-plus-ingress:5.3.3
+        args:
+        - -nginx-plus=true
+        - -enable-snippets=true
+        - -nginx-configmaps=$(POD_NAMESPACE)/nginx-plus-nginx-ingress
+        - -ingress-class=nginx
+        - -log-level=info
+        env:
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+
+        volumeMounts:
+        - name: cdg-njs-lib
+          mountPath: /etc/nginx/njs
+          readOnly: true
+
+        ports:
+        - containerPort: 80
+          name: http
+        - containerPort: 443
+          name: https
