@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rate-minion-main
+  namespace: rate-lab
+  annotations:
+    nginx.org/mergeable-ingress-type: "minion"
+
+    nginx.org/limit-req-rate: "30r/s"
+    nginx.org/limit-req-key: "main"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: martin.kushikimi.xyz
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: webapp-main-svc
+            port:
+              number: 80

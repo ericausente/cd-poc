@@ -1,0 +1,16 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rate-master
+  namespace: rate-lab
+  annotations:
+    nginx.org/mergeable-ingress-type: "master"
+
+    # Global rate limit
+    nginx.org/limit-req-rate: "40r/s"
+    nginx.org/limit-req-key: "global"
+    nginx.org/limit-req-zone-size: "20M"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: martin.kushikimi.xyz

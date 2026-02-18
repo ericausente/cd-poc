@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rate-minion-admin
+  namespace: rate-lab
+  annotations:
+    nginx.org/rewrites: "serviceName=webapp-admin-svc rewrite=/"
+    nginx.org/mergeable-ingress-type: "minion"
+
+    nginx.org/limit-req-rate: "5r/s"
+    nginx.org/limit-req-key: "admin"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: martin.kushikimi.xyz
+    http:
+      paths:
+      - path: /admin
+        pathType: Prefix
+        backend:
+          service:
+            name: webapp-admin-svc
+            port:
+              number: 80
