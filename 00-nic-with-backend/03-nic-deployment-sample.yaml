@@ -38,9 +38,12 @@ spec:
               fieldPath: metadata.namespace
 
         volumeMounts:
-        - name: cdg-njs-lib
-          mountPath: /etc/nginx/njs
-          readOnly: true
+        - mountPath: /etc/nginx/conf.d/oauth_token.js
+          name: cdg-njs-lib
+          subPath: oauth_token.js
+        - mountPath: /etc/nginx/conf.d/lowercase.js
+          name: cdg-njs-lib
+          subPath: lowercase.js
 
         ports:
         - containerPort: 80
