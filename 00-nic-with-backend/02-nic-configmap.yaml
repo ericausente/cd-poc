@@ -9,7 +9,7 @@ data:
     subrequest_output_buffer_size 64k;
 
     # NJS library location
-    js_path /etc/nginx/njs;
+    js_path /etc/nginx/conf.d;
 
     # Import NJS modules
     js_import oauth_token from oauth_token.js;
