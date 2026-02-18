@@ -39,8 +39,8 @@ metadata:
         proxy_read_timeout 2s;
         proxy_next_upstream off;
 
-        # ✅ FIXED: Keycloak base path includes /auth
-        proxy_pass http://keycloakaz.kushikimi.xyz/auth/realms/mw-dev-realm/protocol/openid-connect/token;
+        # ✅ FIXED: Keycloak base path includes /auth - - notice the https as it's redirected there by default
+        proxy_pass https://keycloakaz.kushikimi.xyz/auth/realms/mw-dev-realm/protocol/openid-connect/token;
       }
 
       # BEARER -> UMA ticket permission check
@@ -61,8 +61,8 @@ metadata:
         proxy_read_timeout 2s;
         proxy_next_upstream off;
 
-        # ✅ FIXED: Keycloak base path includes /auth
-        proxy_pass http://keycloakaz.kushikimi.xyz/auth/realms/mw-dev-realm/protocol/openid-connect/token;
+        # ✅ FIXED: Keycloak base path includes /auth - notice the https as it's redirected there by default
+        proxy_pass https://keycloakaz.kushikimi.xyz/auth/realms/mw-dev-realm/protocol/openid-connect/token;
       }
 
     nginx.org/location-snippets: |
