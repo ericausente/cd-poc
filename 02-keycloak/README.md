@@ -1,103 +1,188 @@
-We are doing here in this POC two flows:
-1. client_credentials (Basic)
-2. UMA ticket (Bearer permission check)
+# NGINX + NJS + Keycloak Authorization POC
 
-So in Keycloak you need:
+## Overview
 
-A) Realm
-Realm name: mw-dev-realm (or change NGINX to match)
+This Proof of Concept demonstrates NGINX Ingress Controller using
+**auth_request + NJS** to perform authorization against Keycloak using
+two OAuth2 flows:
 
-B) Confidential Client for Client-Credentials
-This is what your Basic header represents.
+1.  **Client Credentials (Basic)**
+2.  **UMA Ticket (Bearer Permission Check)**
+
+NGINX does not expose Keycloak directly.\
+All validation happens server-side via NJS.
+
+------------------------------------------------------------------------
+
+# Architecture Flow
+
+    Client → NGINX → auth_request → NJS
+          → Keycloak Token Endpoint
+              → 200 → Allow (204)
+              → Non‑200 → Deny (401/403)
+
+------------------------------------------------------------------------
+
+# Keycloak Configuration
+
+⚠️ This Keycloak instance is exposed under `/auth`.
+
+All token endpoints must use:
+
+    https://keycloakaz.kushikimi.xyz/auth/realms/<realm>/protocol/openid-connect/token
+
+Confirm using discovery:
+
+``` bash
+curl -sk https://keycloakaz.kushikimi.xyz/auth/realms/mw-dev-realm/.well-known/openid-configuration | jq -r .token_endpoint
 ```
-Create a client:
-Client ID: mw-test-client (example)
-Client type: Confidential
-Enable: Service Accounts
-Client Authentication: ON
 
-Allowed grant types:
-✅ Client credentials
-```
+------------------------------------------------------------------------
 
-Then you’ll use:
-```
+# A) Create Realm
+
+Realm name:
+
+    mw-dev-realm
+
+------------------------------------------------------------------------
+
+# B) Client for Client Credentials Flow (Basic)
+
+Create client:
+
+  Setting                    Value
+  -------------------------- ----------------
+  Client ID                  mw-test-client
+  Client Type                Confidential
+  Client Authentication      ON
+  Service Accounts Enabled   ON
+  Standard Flow              OFF
+  Implicit Flow              OFF
+  Direct Access Grants       OFF
+
+No redirect URIs required.
+
+### Generate Basic Header
+
+``` bash
 echo -n 'mw-test-client:<client-secret>' | base64
 ```
 
-and pass it as Authorization: Basic <base64>
+Use as:
 
-C) Resource Server Client for UMA (audience)
+    Authorization: Basic <base64>
 
-Your UMA request uses:
-audience=mw-resource-owner
+------------------------------------------------------------------------
 
-So you need a client:
-```
-Client ID: mw-resource-owner
-Authorization: ✅ Enabled (Keycloak “Authorization Services”)
-```
+# C) Resource Server Client for UMA
 
-D) Create a Protected Resource + Scopes
+Create client:
 
-You are sending permissions like:
-/headers#GET (or /mw/campaign-management/...#GET)
+  Setting                 Value
+  ----------------------- -------------------
+  Client ID               mw-resource-owner
+  Client Type             Confidential
+  Authorization Enabled   ON
 
-So you need to create resources that match your lab URIs.
+------------------------------------------------------------------------
 
-In Keycloak (in mw-resource-owner client):
-Authorization → Resources → Create:
-Resource Name: httpbin-headers
-URI: /headers
+# D) Create Resource + Scope
 
-(Optionally set URI matching / wildcard if you prefer)
+Inside:
 
-Authorization → Scopes:
-Create scope: GET (or read)
+    Clients → mw-resource-owner → Authorization
+
+### Resource
+
+    Name: httpbin-headers
+    URI: /headers
+
+### Scope
+
+    GET
+
 Attach scope to resource.
 
-E) Create Policy + Permission
+------------------------------------------------------------------------
 
-Minimal permissive setup (so you can test “success path” first):
+# E) Create Policy + Permission
 
-Policy: Allow All (or Role-based)
-Easiest: “User-based” or “Role-based” policy
+### Policy
 
-Permission:
-Type: Resource-based
+Create a Role-based or User-based policy (Allow All for lab).
 
-Resource: httpbin-headers
+### Permission
 
-Scopes: GET
+Type: Resource-based\
+Resource: httpbin-headers\
+Scope: GET\
+Apply policy created above.
 
-Apply Policy: Allow All / role policy
+------------------------------------------------------------------------
 
-This makes UMA succeed for the requested permission.
+# Manual Validation Before NGINX
 
-Step 3 — Validate Keycloak manually (before NGINX)
+## 1) Client Credentials Test
 
-1) client_credentials
-```
-curl -sk --request POST 'https://keycloakaz.kushikimi.xyz/realms/mw-dev-realm/protocol/openid-connect/token' \
-  --header 'Content-Type: application/x-www-form-urlencoded' \
-  --header 'Authorization: Basic <BASE64(client:secret)>' \
-  --data-urlencode 'grant_type=client_credentials' | jq .
+``` bash
+curl -sk -X POST   'https://keycloakaz.kushikimi.xyz/auth/realms/mw-dev-realm/protocol/openid-connect/token'   -H 'Content-Type: application/x-www-form-urlencoded'   -H 'Authorization: Basic <BASE64(client:secret)>'   --data-urlencode 'grant_type=client_credentials' | jq .
 ```
 
-2) UMA ticket (permission check)
+Expected:
 
-You need a Bearer token that Keycloak accepts for UMA.
-For lab simplicity, you can use a user token or service account token depending on how you configured policies.
-```
-curl -sk --request POST 'https://keycloakaz.kushikimi.xyz/realms/mw-dev-realm/protocol/openid-connect/token' \
-  --header 'Content-Type: application/x-www-form-urlencoded' \
-  --header 'Authorization: Bearer <ACCESS_TOKEN>' \
-  --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:uma-ticket' \
-  --data-urlencode 'permission=/headers#GET' \
-  --data-urlencode 'audience=mw-resource-owner' \
-  --data-urlencode 'permission_resource_format=uri' \
-  --data-urlencode 'permission_resource_matching_uri=true' | jq .
+``` json
+{
+  "access_token": "...",
+  "expires_in": 300,
+  "token_type": "Bearer"
+}
 ```
 
+------------------------------------------------------------------------
 
-If this returns 200 with an access_token, your Keycloak side is correct.
+## 2) UMA Ticket Test
+
+``` bash
+curl -sk -X POST   'https://keycloakaz.kushikimi.xyz/auth/realms/mw-dev-realm/protocol/openid-connect/token'   -H 'Content-Type: application/x-www-form-urlencoded'   -H 'Authorization: Bearer <ACCESS_TOKEN>'   --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:uma-ticket'   --data-urlencode 'permission=/headers#GET'   --data-urlencode 'audience=mw-resource-owner'   --data-urlencode 'permission_resource_format=uri'   --data-urlencode 'permission_resource_matching_uri=true' | jq .
+```
+
+If this returns 200 with `access_token`, UMA configuration is correct.
+
+------------------------------------------------------------------------
+
+# NGINX Validation
+
+``` bash
+curl -i https://cdg-auth-lab.kushikimi.xyz/headers   -H "Authorization: Basic <BASE64>"
+```
+
+or
+
+``` bash
+curl -i https://cdg-auth-lab.kushikimi.xyz/headers   -H "Authorization: Bearer <TOKEN>"
+```
+
+------------------------------------------------------------------------
+
+# Common Pitfalls
+
+1.  Missing `/auth` base path
+2.  Wrong realm name
+3.  Authorization not enabled on resource client
+4.  Permission string mismatch (`/headers#GET`)
+5.  Wrong client secret
+
+------------------------------------------------------------------------
+
+# Summary
+
+This POC validates:
+
+• NGINX auth_request pattern\
+• NJS dynamic flow switching\
+• Keycloak client_credentials\
+• Keycloak UMA Authorization Services\
+• Permission-based backend access control
+
+------------------------------------------------------------------------
