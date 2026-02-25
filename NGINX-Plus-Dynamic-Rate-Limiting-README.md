@@ -236,5 +236,3 @@ X-EP-Key: POST\|...
 -   Tune burst values appropriately
 
 ------------------------------------------------------------------------
-
-Ready for GitHub deployment.
